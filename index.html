@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>npm-look - NPM Name Availability Checker</title>
+    <meta
+      name="description"
+      content="npm-look is a lightweight utility to quickly check the availability of npm package names and usernames. Supports scoped packages, name variants, and conflict detection."
+    />
+    <meta
+      name="keywords"
+      content="npm name checker, npm package availability, npm username checker, scoped package, npm CLI, npm API, package name variants"
+    />
+    <meta
+      property="og:title"
+      content="npm-look - NPM Name Availability Checker"
+    />
+    <meta
+      property="og:description"
+      content="Quickly check NPM package names and usernames with npm-look. Supports scoped packages and detects name conflicts and variants."
+    />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:url"
+      content="https://teneplaysofficial.github.io/npm-look"
+    />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: "Courier New", Courier, monospace;
+        font-weight: normal;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.5;
+        font-size: 1rem;
+      }
+
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+
+      form {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.85rem 0.25rem;
+        flex-wrap: wrap;
+      }
+
+      input {
+        flex: 4;
+        padding: 0.75rem;
+        border: none;
+        border-radius: 4px;
+        outline: 2px solid rgba(128, 128, 128, 0.37);
+      }
+
+      button {
+        flex: 1;
+        padding: 0.75rem;
+        border: none;
+        border-radius: 4px;
+        outline: 2px solid rgba(128, 128, 128, 0.37);
+        cursor: pointer;
+      }
+
+      main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      #logs {
+        flex: 1;
+        min-height: 0;
+        padding: 1rem;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+        scrollbar-color: #888 transparent;
+      }
+
+      #logs::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      #logs::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 3px;
+      }
+
+      #logs::-webkit-scrollbar-thumb:hover {
+        background: #555;
+      }
+
+      #logs::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .log-line {
+        margin-bottom: 0.5rem;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+
+      marquee {
+        padding: 0.5rem;
+      }
+
+      @media (max-width: 900px) {
+        form {
+          flex-direction: column;
+          align-items: stretch;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <marquee>
+      Check NPM package & username availability instantly - faster than
+      npm-name, supports scoped packages, detects name conflicts & variants!
+    </marquee>
+    <header>
+      <form onsubmit="handleForm(event)">
+        <input
+          id="input"
+          name="input"
+          type="text"
+          placeholder="Enter package name, username, or scope (e.g., react, @scope/name). Separate multiple entries with spaces, commas (,), or pipes (|)."
+          autocomplete="off"
+          autofocus
+        />
+        <button id="submitBtn" type="submit">Check Availability</button>
+      </form>
+    </header>
+
+    <main>
+      <div id="logs" role="log" aria-live="polite"></div>
+    </main>
+
+    <script>
+      let count = 0;
+      const NPM_NAME_ENDPOINT = "https://registry.npmjs.org/";
+      const NPM_USER_ENDPOINT = "https://www.npmjs.com/~";
+
+      class Log {
+        constructor(container) {
+          this.container = container;
+        }
+
+        log(text, color) {
+          if (!text) return;
+          const line = document.createElement("div");
+          line.className = "log-line";
+          line.style.color = color || "#ddd";
+
+          const urlRegex = /(https?:\/\/[^\s]+)/g;
+          let lastIndex = 0;
+          const matches = [...text.matchAll(urlRegex)];
+
+          if (matches.length) {
+            matches.forEach((match) => {
+              const url = match[0];
+              const index = match.index;
+
+              if (index > lastIndex) {
+                line.appendChild(
+                  document.createTextNode(text.slice(lastIndex, index))
+                );
+              }
+
+              const a = document.createElement("a");
+              a.href = url;
+              a.textContent = url;
+              a.rel = "noopener noreferrer";
+              a.target = "_blank";
+              a.style.color = "blue";
+              line.appendChild(a);
+
+              lastIndex = index + url.length;
+            });
+
+            if (lastIndex < text.length) {
+              line.appendChild(document.createTextNode(text.slice(lastIndex)));
+            }
+          } else {
+            line.textContent = text;
+          }
+
+          this.container.appendChild(line);
+          this.container.scrollTop = this.container.scrollHeight;
+        }
+
+        info(t) {
+          this.log(t, "#0000cc");
+        }
+
+        warn(t) {
+          this.log(t, "#cc6600");
+        }
+
+        error(t) {
+          this.log(t, "#b20000");
+        }
+
+        success(t) {
+          this.log(t, "#006400");
+        }
+
+        clear() {
+          this.container.innerHTML = "";
+        }
+      }
+
+      const logsEl = document.getElementById("logs");
+      const log = new Log(logsEl);
+
+      const emptyMessages = [
+        "Empty value - please enter something! 📝",
+        "Still empty - don’t be shy! 🤷‍♂️",
+        "Empty again 😅 - type something!",
+        "Come on - don’t leave it blank! 🚫",
+        "Seriously - fill something in 😜",
+        "Alright… this is getting funny 😂",
+        "Oops - still nothing? 🙃",
+        "C’mon - your input matters! 💡",
+        "Blank again - maybe coffee? ☕",
+        "Empty field alert - time to type! ⚠️",
+        "Nothing there - are you testing me? 🤖",
+        "Silence is golden - but not here! ✨",
+        "Empty value - your input is needed 🔍",
+        "Still empty - let’s fix that! 🔧",
+        "Blank again - don’t quit now! 💪",
+      ];
+
+      // Validate package name format
+      function isValidPackageName(name) {
+        return /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(
+          name
+        );
+      }
+
+      function variants(n) {
+        if (!/[-._]/.test(n)) return [];
+
+        return [
+          ...new Set([
+            n.replace(/-/g, ""),
+            n.replace(/-/g, "_"),
+            n.replace(/-/g, "."),
+            n.replace(/_/g, ""),
+            n.replace(/_/g, "-"),
+            n.replace(/_/g, "."),
+            n.replace(/\./g, ""),
+            n.replace(/\./g, "-"),
+            n.replace(/\./g, "_"),
+          ]),
+        ].filter((v) => isValidPackageName(v)); // Validate variants
+      }
+
+      function convert(v) {
+        return String(v)
+          .split(/[\s,|]+/g)
+          .filter(Boolean)
+          .filter(isValidPackageName); // Filter invalid package names
+      }
+
+      async function fetchWithTimeout(url, timeout = 5000) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        try {
+          const response = await fetch(url, { signal: controller.signal });
+          clearTimeout(timeoutId);
+          return response;
+        } catch (error) {
+          clearTimeout(timeoutId);
+          throw error;
+        }
+      }
+
+      async function handleForm(e) {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const txt = formData.get("input")?.trim();
+        const submitBtn = document.getElementById("submitBtn");
+
+        if (!txt) {
+          count++;
+          log.clear();
+          log.error(
+            count <= emptyMessages.length
+              ? emptyMessages[count - 1]
+              : `Empty value (${count}) - still nothing?`
+          );
+          return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Checking";
+        submitBtn.style.cursor = "not-allowed";
+
+        count = 0;
+        log.clear();
+        log.info("Running checks");
+
+        const data = convert(txt).reduce(
+          (acc, item) => {
+            if (item.startsWith("@") && !item.includes("/")) {
+              acc.usernames.push(item);
+            } else {
+              acc.packages.push(item);
+            }
+            return acc;
+          },
+          { packages: [], usernames: [] }
+        );
+
+        if (!data.packages.length) log.warn("No valid package names provided");
+        if (!data.usernames.length) log.warn("No usernames provided");
+        if (data.packages.length)
+          log.info(
+            `Package name${
+              data.packages.length > 1 ? "s" : ""
+            } found: ${data.packages.join(", ")}`
+          );
+        if (data.usernames.length)
+          log.info(
+            `Username${
+              data.usernames.length > 1 ? "s" : ""
+            } found: ${data.usernames.join(", ")}`
+          );
+
+        await Promise.all(
+          data.packages.map(async (d) => {
+            try {
+              const encodedName = encodeURIComponent(d).replace("%40", "@"); // Preserve @ for scoped packages
+              const url = NPM_NAME_ENDPOINT + encodedName;
+              const raw = await fetchWithTimeout(url);
+              const res = await raw.json();
+
+              if (raw.ok && !res.error) {
+                log.warn(
+                  `Package name not available: ${d} \n URL: https://www.npmjs.com/package/${res.name}`
+                );
+              } else if (raw.status === 404) {
+                log.info(
+                  `Package name looks available, running conflict checks: ${d}`
+                );
+                let hasConflict = false;
+                const names = variants(
+                  d.startsWith("@") && d.includes("/") ? d.split("/")[1] : d
+                );
+
+                for (const n of names) {
+                  const pkgName =
+                    d.startsWith("@") && d.includes("/")
+                      ? `${d.split("/")[0]}/${n}`
+                      : n;
+                  try {
+                    const rawVariant = await fetchWithTimeout(
+                      NPM_NAME_ENDPOINT +
+                        encodeURIComponent(pkgName).replace("%40", "@")
+                    );
+                    const resVariant = await rawVariant.json();
+
+                    if (rawVariant.ok && !resVariant.error) {
+                      log.error(
+                        `Conflict: ${pkgName} with ${resVariant.name} \n URL: https://www.npmjs.com/package/${resVariant.name}`
+                      );
+                      hasConflict = true;
+                    }
+                  } catch (error) {
+                    log.error(
+                      `Error checking variant ${pkgName}: ${error.message}`
+                    );
+                  }
+                }
+
+                if (!hasConflict) {
+                  log.success(`No conflicts found, available to claim: ${d}`);
+                }
+              } else {
+                log.error(`Unexpected response for ${d}: ${raw.statusText}`);
+              }
+            } catch (error) {
+              log.error(
+                `Error fetching ${d}: ${
+                  error.name === "AbortError"
+                    ? "Request timed out"
+                    : error.message
+                }`
+              );
+            }
+          })
+        );
+
+        // Check usernames (if any)
+        await Promise.all(
+          data.usernames.map(async (username) => {
+            try {
+              const raw = await fetchWithTimeout(
+                NPM_USER_ENDPOINT +
+                  encodeURIComponent(username.replace(/^@/, ""))
+              );
+              if (raw.ok) {
+                log.warn(
+                  `Username not available: ${username} \n URL: ${NPM_USER_ENDPOINT}${username.replace(
+                    /^@/,
+                    ""
+                  )}`
+                );
+              } else if (raw.status === 404) {
+                log.success(`Username available: ${username}`);
+              } else {
+                log.error(
+                  `Unexpected response for ${username}: ${raw.statusText}`
+                );
+              }
+            } catch (error) {
+              log.error(
+                `Error checking username ${username}: ${
+                  error.name === "AbortError"
+                    ? "Request timed out"
+                    : error.message
+                }`
+              );
+            }
+          })
+        );
+
+        log.success("Done");
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Check Availability";
+        submitBtn.style.cursor = "pointer";
+        e.target.reset(); // Clear the form
+      }
+    </script>
+  </body>
+</html>
